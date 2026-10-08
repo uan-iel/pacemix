@@ -1,63 +1,62 @@
-# PaceMix UI / Interaction QA
+# PaceMix QQ Music Integration — Design QA
 
 final result: passed
 
-## Scope
+## Source visual truth
 
-- Selected direction: `docs/design-source/selected-option-3-calm-voice-core.png`.
-- Implemented state: initial voice-first training creation at `http://127.0.0.1:4173/`.
-- Reference source: 853 × 1844, normalized to 393 × 852 for comparison.
-- Implementation source: default desktop preview with the iPhone runtime chrome retained, then the app viewport normalized to 393 × 852.
-- Runtime behavior, plan generation, strict stage timing, cadence calibration, and playback logic were not replaced by the visual pass.
+- QQ Music home: `/Users/m3max/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_r5fop4mlgmbp32_b2c5/temp/RWTemp/2026-10/9e20f478899dc29eb19741386f9343c8/17472dc7b8fe551151c98353b0a4b53f.jpg` (1260 × 2844 px).
+- QQ Music song recognition: `/Users/m3max/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_r5fop4mlgmbp32_b2c5/temp/RWTemp/2026-10/9e20f478899dc29eb19741386f9343c8/d272b76147e98ba88ab9f6ae9f6d5e18.jpg` (1260 × 2844 px).
+- QQ Music profile: `/Users/m3max/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_r5fop4mlgmbp32_b2c5/temp/RWTemp/2026-10/9e20f478899dc29eb19741386f9343c8/ca6e64276af5c7095d8e4a05a74cd86a.jpg` (1260 × 2844 px).
+- PaceMix voice core remains grounded in `docs/design-source/selected-option-3-calm-voice-core.png`.
 
-## Visual evidence
+## Implementation evidence
 
-- Final implementation: `docs/qa/gradient-orb-implementation-final.png`.
-- Full source-to-implementation comparison: `docs/qa/gradient-orb-comparison-final.png`.
-- Focused voice-core comparison: `docs/qa/gradient-orb-focus-final.png`.
-- Motion-state comparison: `docs/qa/orb-breath-cycle-comparison.png`.
-- Focused recent-training and navigation comparison: `docs/qa/calm-voice-core-lower-focus.png`.
-- Text-input keyboard safety-area check: `docs/qa/calm-text-keyboard-final.jpg`.
-- Active-training check: `docs/qa/calm-session-pixel.png`.
+- URL: `http://127.0.0.1:4173/`.
+- Implementation screenshot: live Codex in-app Browser capture, tab 6, captured 2026-10-08. The Browser displayed the accepted capture but did not expose a stable local file path.
+- Device content: iPhone runtime, 393 × 852 CSS px; reference images were evaluated at their original 1260 × 2844 density and normalized by composition rather than copied pixel-for-pixel.
+- State: initial voice creation screen, followed by text-input mode and return to voice mode.
 
-## Comparison findings
+## Full-view comparison
 
-- The visual hierarchy now follows the selected calm voice-core direction: one direct title, a restrained support line, one recognizable gradient microphone control, a compact previous-training row, and a quiet bottom switcher/navigation layer.
-- All example sentences and example shortcut chips were intentionally removed in the latest requested state. The initial page now keeps an uninterrupted path from the voice control to previous training.
-- The earlier generic AI cues were removed from visible creation copy. The interface no longer leads with a rainbow gradient, repeated prompt barrage, glowing assistant identity, or chatbot-style framing.
-- The implemented microphone remains tap-to-talk because that is the real interaction contract; the selected reference's hold-to-talk label was intentionally not copied.
-- Previous-training values are live saved product data, so they intentionally differ from the static numbers shown in the visual reference.
-- iPhone status, Dynamic Island, home indicator, and the runtime close control remain visible because they are part of the protected device runtime rather than app UI.
+- The surface now matches QQ Music's cool gray-blue background and white content-card hierarchy instead of the earlier warm standalone-app canvas.
+- A compact back/title/more feature header replaces the standalone PaceMix navigation shell.
+- The PaceMix particle microphone remains the unique functional identity, but its scale and glow are reduced so it no longer overwhelms the music content.
+- Previous training and recommended playlists now enter the first viewport, matching QQ Music's denser content rhythm.
+- A persistent white mini player with real cover art, title, artist, play, and next controls visually connects the feature to QQ Music.
+
+## Focused comparison
+
+- Typography: system/PingFang stack, black display text, smaller gray supporting text, and compact QQ-style header hierarchy are consistent with the references.
+- Spacing: the header clears the Dynamic Island; the orb, previous-training card, and recommendation rail all remain visible in the initial viewport.
+- Colors: `#f4f7fa` background, white cards, restrained borders/shadows, black text, and QQ green interaction states match the sampled visual direction.
+- Images: real local song covers are used in the previous-training card, recommendation collage, and mini player. No placeholder cover art was introduced.
+- Copy: `运动音乐`, `今天想怎么练？`, and the existing training copy remain product-specific and do not expose implementation or AI-system language.
 
 ## Iteration history
 
-1. The first pass placed the title and core too high, used an undersized voice control, and clipped the speed summary. Padding, orb scale, and the previous-training grid were corrected.
-2. Text focus did not reliably reveal the simulated keyboard and navigation could compete with the keyboard layer. Textarea clicks now explicitly open the keyboard; navigation sits behind the keyboard while the mode switch remains usable above it.
-3. The first coded voice core was a flat green disc and its generated particle canvas drifted visibly to one side. Both were replaced with the centered gradient-orb asset extracted from the selected P2 visual.
-4. The first gradient-orb integration mistakenly placed a second microphone over the microphone already present in the source asset, producing a doubled, distorted silhouette. The overlay was removed; the final evidence shows the original P2 microphone and sound bars intact.
-5. The static orb asset was separated into a stable core layer and an independent outer-particle layer. The particle layer now expands from 96.5% to 107.5%, rotates less than one degree, and changes opacity on a regular 5.2-second cycle; listening mode uses a 2.6-second cycle. Reduced-motion users receive a static equivalent.
+1. First integration placed the feature header underneath the Dynamic Island, hiding `运动音乐` (P1). The header moved to the protected content area and creation content was rebalanced below it.
+2. The first mode-switch position sat too high above the mini player and obscured too much of the recommendation rail (P2). Its safe-area formula was reduced so it rests directly above the mini player.
+3. The stable pass verified voice → text → voice transitions and confirmed the input card, fixed header, mini player, and safe area remain intact.
 
-## Functional checks
+## Functional and accessibility checks
 
-- Voice and text modes switch without losing the creation state.
-- Text input opens the simulated iOS keyboard without scrolling or displacing the app viewport.
-- No initial example sentence or example shortcut remains in either voice or text mode; text mode exposes only the neutral placeholder `输入你的今日训练计划`.
-- Computed transforms and opacity were sampled at the contracted and expanded points to confirm that the particle layer moves independently from the core without layout movement.
-- A complete request can progress through understood requirements, strict SPM plan generation, plan preview, and training playback.
-- SPM remains cadence; track BPM remains music tempo. Stage boundaries remain absolute and tracks are cut at the boundary.
-- The only stage-transition warning remains the required audible and visual 5 → 0 countdown.
-- Browser console error log was empty during the final pass.
+- Voice and text mode buttons remain exposed with distinct accessible names.
+- Back, more, voice input, recommendation cards, and mini player remain semantic buttons.
+- Text mode renders its keyboard-aware textarea and send button correctly.
+- Reduced-motion handling for the particle field remains intact.
+- Browser error and warning log was empty in the final pass.
 
 ## Automated verification
 
 - `npm run check:runtime`: passed (28 protected runtime files).
 - `npm run build`: passed (TypeScript and Vite production build).
-- `npm run test:sites`: passed (4/4 tests).
-- Local preview remained available at port 4173.
+
+## Remaining P3 polish
+
+- The floating voice/text control intentionally overlaps the lower edge of the recommendation rail to remain reachable above the mini player. A future QQ Music-native pass could replace it with an inline text/voice action, but this was outside the four selected changes.
 
 ## Severity review
 
 - P0: none.
 - P1: none.
 - P2: none.
-- Accepted differences: protected runtime chrome, live local training data, and tap-to-talk wording.

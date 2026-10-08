@@ -4,7 +4,7 @@
 
 - The locked direction is the V2.2 QQ Music green micro-particle system from the 2026-10-07 handoff package. Do not revert to the earlier multicolor-gradient or green-water-flow directions.
 - The selected 2026-10-07 refinement is `docs/design-source/selected-option-3-calm-voice-core.png`: keep the green particle voice core, but make PaceMix read as a calm sports-music utility rather than an AI concept demo.
-- Creation now keeps the bottom tab bar for orientation. Training playback remains immersive. Arrangement, plan, achievement, and history share the warm-white/green particle system.
+- PaceMix is presented as a QQ Music feature rather than a standalone app: creation uses a QQ Music-style feature header and mini player, with no PaceMix-specific bottom tab bar. Training playback remains immersive. Arrangement, plan, achievement, and history share the cool-gray/white-card QQ Music surface system and green particle identity.
 - Avoid repeated giant slogan wallpaper, rainbow/glowing AI effects, visible “AI” branding, and chat-bot framing. Intelligence should appear through useful questions, validation, and generated plans rather than spectacle.
 - Stage change guidance is a strict audible and visual 5-to-0 countdown. Do not add an earlier “prepare to change speed” instruction.
 

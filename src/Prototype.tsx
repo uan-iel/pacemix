@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeftIcon,
-  CalendarIcon,
   CheckIcon,
   ChevronRightIcon,
   Cross2Icon,
   DownloadIcon,
-  GearIcon,
+  DotsHorizontalIcon,
+  KeyboardIcon,
   MagicWandIcon,
   PauseIcon,
   PlayIcon,
@@ -14,13 +14,13 @@ import {
   ReloadIcon,
   Share1Icon,
   SpeakerLoudIcon,
-  StarFilledIcon,
   TrackNextIcon,
 } from "@radix-ui/react-icons";
 import { AnimatePresence, motion } from "motion/react";
 import { BottomSheet, Carousel, KeyboardTextarea, MobileScroll, useKeyboard, useKeyboardInsets } from "./mobile";
 import {
   buildPlan,
+  catalog,
   currentScheduleIndex,
   detectPlanConflicts,
   emptyDraft,
@@ -49,14 +49,95 @@ const readCadence = (): CadenceProfile => {
 const languageLabel = (value: Plan["musicLanguage"] | TrainingDraft["language"]) => value === "en" ? "全部英文歌" : value === "zh" ? "全部华语歌" : "混合曲库";
 const intensityLabel = (value: Plan["intensity"] | TrainingDraft["intensity"]) => value === "easy" ? "轻松" : value === "medium" ? "中等" : value === "hard" ? "挑战" : value === "custom" ? "自定义配速" : value === "ai" ? "由 AI 安排" : "待确认";
 
-function titleFor(plan: Plan) {
-  const bucket = plan.minutes < 20 ? 0 : plan.minutes < 40 ? 1 : plan.minutes < 60 ? 2 : 3;
-  const titles = plan.activity === "跑步"
-    ? ["配速练习生", "节奏掌控者", "极速领航员", "永动机传说"]
-    : plan.activity === "跑步机爬坡"
-      ? ["缓坡行者", "进阶登山者", "云端攀登者", "巅峰征服者"]
-      : ["漫步新手", "城市漫步家", "疾风步行者", "永不停歇的旅人"];
-  return titles[bucket];
+const shareDate = (date = new Date()) => `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
+const averageSpm = (plan: Plan) => Math.round(plan.stages.reduce((sum, stage) => sum + stage.targetSpm * stage.minutes, 0) / Math.max(1, plan.minutes));
+const shareCovers = (plan: Plan) => {
+  const seen = new Set<string>();
+  return plan.schedule.map((item) => item.song).filter((song) => !seen.has(song.id) && !!seen.add(song.id)).slice(0, 3);
+};
+
+function refreshCatalogAssets(plan: Plan): Plan {
+  const currentSong = (song: Plan["songs"][number]) => catalog.find((item) => item.id === song.id) ?? song;
+  return { ...plan, songs: plan.songs.map(currentSong), schedule: plan.schedule.map((item) => ({ ...item, song: currentSong(item.song) })) };
+}
+
+function speedSamples(plan: Plan, count = 240) {
+  const total = Math.max(1, plan.stages.reduce((sum, stage) => sum + stage.minutes, 0));
+  const boundaries: Array<{ at: number; from: number; to: number }> = [];
+  let cursor = 0;
+  plan.stages.forEach((stage, index) => {
+    cursor += stage.minutes;
+    const next = plan.stages[index + 1];
+    if (next) boundaries.push({ at: cursor, from: stage.speed, to: next.speed });
+  });
+  const transition = Math.min(.9, total * .025);
+  const speedAt = (minute: number) => {
+    let elapsed = 0; let value = plan.stages[0]?.speed ?? 0;
+    for (const stage of plan.stages) { if (minute <= elapsed + stage.minutes) { value = stage.speed; break; } elapsed += stage.minutes; }
+    for (const edge of boundaries) {
+      if (minute >= edge.at - transition && minute <= edge.at + transition) {
+        const raw = (minute - edge.at + transition) / (transition * 2);
+        const eased = raw * raw * (3 - 2 * raw);
+        value = edge.from + (edge.to - edge.from) * eased;
+      }
+    }
+    return value;
+  };
+  return Array.from({ length: count }, (_, index) => ({ minute: total * index / (count - 1), speed: speedAt(total * index / (count - 1)) }));
+}
+
+function paintSpeedCurve(context: CanvasRenderingContext2D, plan: Plan, x: number, y: number, width: number, height: number, lineWidth: number) {
+  const samples = speedSamples(plan);
+  const speeds = plan.stages.map((stage) => stage.speed);
+  const min = Math.min(...speeds) - Math.max(.8, (Math.max(...speeds) - Math.min(...speeds)) * .18);
+  const max = Math.max(...speeds) + Math.max(.8, (Math.max(...speeds) - Math.min(...speeds)) * .18);
+  const point = (sample: { minute: number; speed: number }) => ({ x: x + sample.minute / Math.max(1, plan.minutes) * width, y: y + height - (sample.speed - min) / Math.max(.1, max - min) * height });
+  const gradient = context.createLinearGradient(0, y, 0, y + height);
+  gradient.addColorStop(0, "rgba(49,194,124,.24)"); gradient.addColorStop(1, "rgba(49,194,124,0)");
+  context.beginPath(); samples.forEach((sample, index) => { const p = point(sample); index ? context.lineTo(p.x, p.y) : context.moveTo(p.x, p.y); });
+  const last = point(samples.at(-1)!); const first = point(samples[0]); context.lineTo(last.x, y + height); context.lineTo(first.x, y + height); context.closePath(); context.fillStyle = gradient; context.fill();
+  context.beginPath(); samples.forEach((sample, index) => { const p = point(sample); index ? context.lineTo(p.x, p.y) : context.moveTo(p.x, p.y); });
+  context.strokeStyle = "#08bd73"; context.lineWidth = lineWidth; context.lineCap = "round"; context.lineJoin = "round"; context.stroke();
+}
+
+function SpeedCurve({ plan }: { plan: Plan }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current; const context = canvas?.getContext("2d"); if (!canvas || !context) return;
+    const ratio = Math.min(2, window.devicePixelRatio || 1); const width = canvas.clientWidth; const height = canvas.clientHeight;
+    canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); context.setTransform(ratio, 0, 0, ratio, 0, 0); context.clearRect(0, 0, width, height);
+    paintSpeedCurve(context, plan, 3, 8, width - 6, height - 19, 3.2);
+  }, [plan]);
+  return <canvas ref={ref} className="share-speed-curve" aria-label="根据训练阶段绘制的速度曲线" />;
+}
+
+const loadCanvasImage = (source: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = source;
+});
+
+async function renderShareCard(plan: Plan) {
+  const canvas = document.createElement("canvas"); canvas.width = 1080; canvas.height = 1440;
+  const context = canvas.getContext("2d"); if (!context) throw new Error("canvas unavailable");
+  const font = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif';
+  context.fillStyle = "#f4f7fa"; context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#08bd73"; context.beginPath(); context.arc(107, 99, 35, 0, Math.PI * 2); context.fill();
+  context.fillStyle = "#fff"; context.font = `700 48px ${font}`; context.fillText("♪", 90, 116);
+  context.fillStyle = "#111315"; context.font = `800 42px ${font}`; context.fillText("PaceMix · QQ音乐", 158, 113);
+  context.textAlign = "right"; context.fillStyle = "#858a90"; context.font = `650 30px ${font}`; context.fillText(shareDate(), 1000, 108); context.textAlign = "left";
+  context.fillStyle = "#101214"; context.font = `900 224px ${font}`; context.fillText(`${plan.minutes}:00`, 74, 398);
+  context.font = `900 84px ${font}`; context.fillText(`${plan.activity === "跑步" ? "节奏跑" : plan.activity}完成`, 78, 515);
+  paintSpeedCurve(context, plan, 40, 570, 1000, 170, 10);
+  let elapsed = 0; context.textAlign = "center"; context.font = `700 28px ${font}`;
+  plan.stages.forEach((stage) => { const middle = elapsed + stage.minutes / 2; context.fillStyle = stage.speed === Math.max(...plan.stages.map((item) => item.speed)) ? "#079c61" : "#5d6268"; context.fillText(`${stage.name} ${stage.minutes}′`, 40 + middle / plan.minutes * 1000, 800); elapsed += stage.minutes; });
+  const stats = [[`${averageSpm(plan)}`, "SPM", "平均步频"], [`${Math.max(...plan.stages.map((stage) => stage.speed))}`, "km/h", "最高速度"], [`${plan.schedule.length}`, "首", "节奏歌曲"]];
+  stats.forEach(([value, unit, label], index) => { const x = 82 + index * 335; context.textAlign = "left"; context.fillStyle = "#06ae6a"; context.font = `900 94px ${font}`; context.fillText(value, x, 925); const width = context.measureText(value).width; context.font = `800 31px ${font}`; context.fillText(unit, x + width + 7, 921); context.fillStyle = "#555b62"; context.font = `650 30px ${font}`; context.fillText(label, x, 972); if (index < 2) { context.fillStyle = "rgba(22,28,34,.1)"; context.fillRect(x + 307, 838, 1, 142); } });
+  let barX = 72; const barWidth = 936; plan.stages.forEach((stage, index) => { const width = stage.minutes / plan.minutes * barWidth; context.fillStyle = index === 1 || plan.stages.length === 1 ? "#18c77d" : "#b9ead3"; context.beginPath(); context.roundRect(barX, 1026, Math.max(8, width - 7), 22, 11); context.fill(); barX += width; });
+  elapsed = 0; context.textAlign = "center"; context.font = `700 27px ${font}`; plan.stages.forEach((stage) => { const middle = elapsed + stage.minutes / 2; context.fillStyle = stage.speed === Math.max(...plan.stages.map((item) => item.speed)) ? "#078f59" : "#62676d"; context.fillText(`${stage.name} ${stage.minutes}′`, 72 + middle / plan.minutes * barWidth, 1100); elapsed += stage.minutes; });
+  const covers = shareCovers(plan); const coverImages = await Promise.all(covers.map((song) => loadCanvasImage(song.cover).catch(() => null)));
+  coverImages.forEach((image, index) => { const x = 72 + index * 175; const y = 1161; const size = 158; context.save(); context.beginPath(); context.roundRect(x, y, size, size, 13); context.clip(); if (image) { const scale = Math.max(size / image.width, size / image.height); const sw = size / scale; const sh = size / scale; context.drawImage(image, (image.width - sw) / 2, (image.height - sh) / 2, sw, sh, x, y, size, size); } else { const fallback = context.createLinearGradient(x, y, x + size, y + size); fallback.addColorStop(0, "#d8f3e7"); fallback.addColorStop(1, "#75d9aa"); context.fillStyle = fallback; context.fillRect(x, y, size, size); context.fillStyle = "rgba(255,255,255,.9)"; context.font = `700 62px ${font}`; context.textAlign = "center"; context.fillText("♪", x + size / 2, y + 101); } context.restore(); });
+  context.fillStyle = "rgba(22,28,34,.1)"; context.fillRect(606, 1161, 1, 158);
+  try { const calligraphy = await loadCanvasImage("/ui/pacemix-calligraphy.png"); context.drawImage(calligraphy, 625, 1154, 390, 195); } catch { context.fillStyle = "#08b870"; context.font = `700 48px ${font}`; context.fillText("音乐跟上每一步", 650, 1260); }
+  return new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("export failed")), "image/png", 1));
 }
 
 async function understandRequest(text: string, draft: TrainingDraft) {
@@ -168,6 +249,51 @@ function FlowingVoiceParticles({ listening }: { listening: boolean }) {
   return <canvas ref={ref} className="voice-flow-particles" aria-hidden="true" />;
 }
 
+// Keep the previous voice core available via ?voiceCore=classic for visual comparison.
+function DiffuseVoiceCore({ listening }: { listening: boolean }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = canvas.height = 310 * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const start = performance.now(); let frame = 0;
+    const draw = (now: number) => {
+      const t = reduced.matches ? 0 : (now - start) / 1000 * (listening ? 1.35 : 1);
+      ctx.clearRect(0, 0, 310, 310);
+      const x = 155 + Math.sin(t * .5) * 3, y = 155 + Math.cos(t * .4) * 2;
+      const gradient = ctx.createRadialGradient(x - 12, y - 16, 3, x, y, 103);
+      gradient.addColorStop(0, "rgba(137,231,174,.98)");
+      gradient.addColorStop(.38, "rgba(54,193,128,.98)");
+      gradient.addColorStop(.52, "rgba(66,197,139,.9)");
+      gradient.addColorStop(.75, "rgba(110,217,169,.3)");
+      gradient.addColorStop(1, "rgba(151,231,187,0)");
+      ctx.fillStyle = gradient; ctx.fillRect(0, 0, 310, 310);
+      // Inner particles follow the same staggered curved waves as the original.
+      for (let layer = 0; layer < 10; layer++) {
+        const progress = (t / 5.8 + layer / 10) % 1;
+        const envelope = Math.sin(progress * Math.PI);
+        const count = Math.round(300 - progress * 155);
+        for (let dot = 0; dot < count; dot++) {
+          const seed = dot * 2.399963 + layer * .71;
+          const a = dot / count * Math.PI * 2 + layer * .13 + t * .035 + Math.sin(seed + t * .4) * .015;
+          const wave = Math.sin(a * 3 - t * 1.25 + layer * .46) * 3.5 + Math.sin(a * 5 + t * .7) * 1.5;
+          const r = 42 + progress * 63 + wave + Math.sin(seed) * 2.5;
+          const opacity = envelope * (.48 + (dot % 7) * .035) * (1 - progress * .48);
+          ctx.beginPath(); ctx.arc(155 + Math.cos(a) * r, 155 + Math.sin(a) * r, .75 + (dot % 4) * .18, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(49,194,124,${opacity})`; ctx.fill();
+        }
+      }
+      if (!reduced.matches) frame = requestAnimationFrame(draw);
+    };
+    draw(start); return () => cancelAnimationFrame(frame);
+  }, [listening]);
+  return <><canvas ref={ref} className="voice-flow-particles" aria-hidden="true" /><FlowingVoiceParticles listening={listening} /><svg className="diffuse-core-mic" viewBox="0 0 140 100" fill="none" aria-hidden="true"><rect x="59" y="14" width="22" height="43" rx="11" fill="white" /><path d="M48 45v5a22 22 0 0 0 44 0v-5M70 72v13M62 85h16" stroke="white" strokeWidth="4" strokeLinecap="round" /><path d="M16 42v15M26 33v32M36 43v13M104 43v13M114 33v32M124 42v15" stroke="white" strokeWidth="4" strokeLinecap="round" /></svg></>;
+}
+
 function MarqueeBackdrop({ subdued = false }: { subdued?: boolean }) {
   const rows = Array.from({ length: 7 }, (_, i) => i);
   return <div className={`marquee-backdrop ${subdued ? "subdued" : ""}`} aria-hidden="true">
@@ -177,11 +303,6 @@ function MarqueeBackdrop({ subdued = false }: { subdued?: boolean }) {
 
 function AppHeader({ title, eyebrow, action, onAction }: { title: string; eyebrow?: string; action?: React.ReactNode; onAction?: () => void }) {
   return <header className="app-header"><div><span>{eyebrow}</span><h1>{title}</h1></div>{action && <button aria-label="页面操作" onClick={onAction}>{action}</button>}</header>;
-}
-
-function BottomNav({ active, onChange }: { active: Screen; onChange: (screen: Screen) => void }) {
-  const items = [["arrange", "安排", <CalendarIcon />], ["plan", "本次训练", <SpeakerLoudIcon />], ["mine", "我的训练", <GearIcon />]] as const;
-  return <nav className="bottom-nav" aria-label="主导航">{items.map(([id, label, icon]) => <button key={id} className={active === id ? "active" : ""} onClick={() => onChange(id)}><i>{icon}</i><span>{label}</span></button>)}</nav>;
 }
 
 function StageTrack({ plan, labels = true }: { plan: Plan; labels?: boolean }) {
@@ -268,16 +389,16 @@ function ChatPage({ plan, profile, onBack, onDone, onNavigate }: { plan: Plan; p
   ].map((item, index) => ({ ...item, result: buildPlan({ minutes: item.minutes, activity: item.activity, intensity: item.intensity, language: "mixed" }, index + 12, profile) })), [profile]);
   return <div className={`chat-page phase-${phase} mode-${mode}`}>
     <ParticleField variant="ambient" />
-    <button className="close-button" aria-label="退出" onClick={() => { recognition.current?.stop(); keyboard.hide(); onBack(); }}><Cross2Icon /></button>
+    <header className="qq-feature-header"><button aria-label="返回 QQ 音乐" onClick={() => { recognition.current?.stop(); keyboard.hide(); onBack(); }}><ArrowLeftIcon /></button><b>运动音乐</b><button aria-label="更多运动音乐功能" onClick={() => onNavigate("mine")}><DotsHorizontalIcon /></button></header>
     <AnimatePresence mode="wait">
       {!isConversation ? <MobileScroll className={`creator-scroll ${mode}`} key={`${mode}-${phase}`}><motion.main className="input-stage" initial={{ opacity: 0, scale: .96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .96 }}>
         <header className="creator-heading"><h1>今天想怎么练？</h1><p>时长、速度和音乐偏好</p></header>
         {mode === "voice" ? <>
-          <button className={`voice-orb ${phase === "listening" ? "listening" : ""}`} onClick={startVoice} aria-label={phase === "listening" ? "结束表达" : "开始语音输入"}><span className="voice-orb-visual" aria-hidden="true"><img className="voice-orb-art" src="/ui/pacemix-clean-core.png" alt="" /><FlowingVoiceParticles listening={phase === "listening"} /></span></button>
+          <div className="voice-input-cluster"><button className={`voice-orb ${phase === "listening" ? "listening" : ""}`} onClick={startVoice} aria-label={phase === "listening" ? "结束表达" : "开始语音输入"}><span className="voice-orb-visual" aria-hidden="true">{new URLSearchParams(window.location.search).get("voiceCore") !== "experimental" ? <><img className="voice-orb-art" src="/ui/pacemix-clean-core.png" alt="" /><FlowingVoiceParticles listening={phase === "listening"} /></> : <DiffuseVoiceCore listening={phase === "listening"} />}</span></button><button className="inline-input-switch keyboard" aria-label="切换到打字输入" onClick={() => switchMode("text")}><KeyboardIcon /></button></div>
           <p className="input-hint">{phase === "listening" ? "正在聆听，再次点击结束" : "点击说话"}</p>
           {phase === "listening" && <div className="voice-transcript live">{value || "说出你的训练计划…"}<span className="transcript-bars"><i /><i /><i /><i /><i /></span></div>}
         </> : <>
-          <div className="particle-input"><KeyboardTextarea value={value} onClick={(event) => keyboard.show(event.currentTarget)} onChange={(event) => setValue(event.target.value)} onBlur={() => keyboard.hide()} placeholder="输入你的今日训练计划" /><button aria-label="发送" onClick={() => void submit()}><ChevronRightIcon /></button></div>
+          <div className="text-input-cluster"><div className="particle-input"><KeyboardTextarea autoFocus value={value} onClick={(event) => keyboard.show(event.currentTarget)} onChange={(event) => setValue(event.target.value)} onBlur={() => keyboard.hide()} placeholder="输入你的今日训练计划" /><button aria-label="发送" onClick={() => void submit()}><ChevronRightIcon /></button></div><button className="inline-input-switch microphone" aria-label="切换到语音输入" onClick={() => switchMode("voice")}><span /></button></div>
         </>}
         {mode === "voice" && <section className="creator-discovery"><button className="creator-recent" onClick={() => onNavigate("plan")}><span>上次训练</span><div><b>{plan.minutes}′</b><em>总时长</em></div><div className="recent-speed"><b>{plan.stages.map((stage) => stage.speed).join(" → ")} <small>km/h</small></b><em>速度安排</em></div><div className="recent-covers">{plan.songs.slice(0, 3).map((song) => <img key={song.id} src={song.cover} alt={song.title} />)}</div><ChevronRightIcon /></button>
           <div className="discovery-heading"><h2>跟着音乐，开始训练</h2><p>选一份计划，听听今天的节奏</p></div>
@@ -300,7 +421,7 @@ function ChatPage({ plan, profile, onBack, onDone, onNavigate }: { plan: Plan; p
       </motion.main>}
     </AnimatePresence>
     {isConversation && !["analyzing", "generating"].includes(phase) && <div className="followup-composer" style={{ bottom: Math.max(18, bottomInset + 10) }}><KeyboardTextarea value={value} onClick={(event) => keyboard.show(event.currentTarget)} onChange={(event) => setValue(event.target.value)} onBlur={() => keyboard.hide()} placeholder="继续补充或修改…" /><button aria-label="发送补充" onClick={() => void submit()}><ChevronRightIcon /></button></div>}
-    {!isConversation && <><div className="mode-switcher" style={{ bottom: Math.max(94, bottomInset + 16) }}><motion.i layout className={mode} /><button className={mode === "voice" ? "active" : ""} onClick={() => switchMode("voice")}>语音</button><button className={mode === "text" ? "active" : ""} onClick={() => switchMode("text")}>打字</button></div><BottomNav active="plan" onChange={onNavigate} /></>}
+    {!isConversation && <button className="qq-mini-player" onClick={() => onNavigate("plan")} aria-label="打开当前播放"><img src={plan.songs[0]?.cover} alt="" /><span><b>{plan.songs[0]?.title || "训练歌单"}</b><small>{plan.songs[0]?.artist || "PaceMix"}</small></span><PlayIcon /><TrackNextIcon /></button>}
   </div>;
 }
 
@@ -323,7 +444,7 @@ function PlanPage({ plan, onStart, onChat, onCadenceChange, onNavigate }: { plan
     <section className="music-section"><div className="section-title"><div><span>MUSIC ROUTE</span><h3>节奏歌单</h3></div><b>{plan.schedule.length} 段</b></div>{plan.notices.map((notice) => <p className="notice" key={notice}>{notice}</p>)}
       <div className="song-list">{plan.schedule.map((item, index) => <div className="song-row" key={item.id}><span>{String(index + 1).padStart(2, "0")}</span><img src={item.song.cover} alt="" /><div><b>{item.song.title}</b><small>{item.song.artist}</small><em>{item.song.bpm} → {item.adjustedMusicBpm} BPM · {item.playbackRate.toFixed(2)}×{item.clipped ? " · 渐弱切段" : ""}</em></div><strong>{formatTime(item.playSeconds)}</strong></div>)}</div>
     </section><button className="text-action" onClick={onChat}>用一句话修改方案</button>
-  </main></MobileScroll><div className="plan-footer"><div><small>{plan.minutes} 分钟</small><b>首段 {plan.stages[0].speed} km/h</b></div><button className="green-button" onClick={() => { stop(); onStart(); }}><PlayIcon />开始训练</button></div><BottomNav active="plan" onChange={onNavigate} /></div>;
+  </main></MobileScroll><div className="plan-footer"><div><small>{plan.minutes} 分钟</small><b>首段 {plan.stages[0].speed} km/h</b></div><button className="green-button" onClick={() => { stop(); onStart(); }}><PlayIcon />开始训练</button></div></div>;
 }
 
 function SessionPage({ plan, onExit, onComplete }: { plan: Plan; onExit: () => void; onComplete: () => void }) {
@@ -359,7 +480,7 @@ function SessionPage({ plan, onExit, onComplete }: { plan: Plan; onExit: () => v
 }
 
 function MinePage({ plan, onPlan, onChat }: { plan: Plan; onPlan: () => void; onChat: () => void }) {
-  return <div className="standard-screen"><MobileScroll className="standard-scroll"><main className="page-content mine-page"><AppHeader title="我的训练" eyebrow="仅保存在此设备" action={<GearIcon />} />
+  return <div className="standard-screen"><MobileScroll className="standard-scroll"><main className="page-content mine-page"><AppHeader title="我的训练" eyebrow="仅保存在此设备" />
     <section className="stats-row"><div><b>03</b><span>完成次数</span></div><div><b>92</b><span>累计分钟</span></div><div><b>{plan.stages[1]?.targetSpm ?? 136}</b><span>常用 SPM</span></div></section>
     <section className="saved-card" onClick={onPlan}><span>最近创建</span><h2>{plan.title}</h2><p>{plan.activity} · {plan.minutes} 分钟 · {plan.schedule.length} 段音乐</p><StageTrack plan={plan} labels={false} /><button>查看方案 <ChevronRightIcon /></button></section>
     <section className="history-section"><div className="section-title"><div><span>LOCAL HISTORY</span><h3>训练记录</h3></div></div>{[["今天", plan.activity, `${plan.minutes} 分钟`, "已创建"], ["昨天", "跑步", "30 分钟", "已完成"], ["周一", "跑步机爬坡", "22 分钟", "18 分钟"]].map((row, index) => <article key={row[0]}><i className={index ? "complete" : "planned"}>{index ? <CheckIcon /> : <SpeakerLoudIcon />}</i><div><small>{row[0]}</small><b>{row[1]} · {row[2]}</b><StageTrack plan={plan} labels={false} /></div><span>{row[3]}</span></article>)}</section>
@@ -368,9 +489,35 @@ function MinePage({ plan, onPlan, onChat }: { plan: Plan; onPlan: () => void; on
 }
 
 function AchievementPage({ plan, onPlan, onAgain, onNavigate }: { plan: Plan; onPlan: () => void; onAgain: () => void; onNavigate: (screen: Screen) => void }) {
-  const [toast, setToast] = useState(""); const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(""), 1800); };
-  const now = new Date(); const date = `${now.getMonth() + 1}月${now.getDate()}日`;
-  return <div className="achievement-page"><MarqueeBackdrop subdued /><button className="close-button" aria-label="返回方案" onClick={onPlan}><Cross2Icon /></button><main><section className="achievement-card"><div className="achievement-badge"><ParticleField variant="badge" /><span><StarFilledIcon /></span></div><h1>{titleFor(plan)}</h1><h2>{plan.activity} · {plan.minutes} 分钟</h2><p>{date} · 训练完成</p><div className="achievement-divider" />{plan.stages.map((stage) => <div className="achievement-row" key={stage.name}><span>{stage.name}</span><b>{stage.minutes} 分钟 · {stage.speed} km/h · {stage.targetSpm} SPM</b></div>)}<footer>PaceMix · 让音乐跟上你的节奏</footer></section><div className="achievement-actions"><button onClick={() => notify("成绩卡已准备好") }><DownloadIcon />保存图片</button><button onClick={() => notify("分享面板已打开") }><Share1Icon />分享</button></div><button className="again-link" onClick={onAgain}>再来一次</button></main>{toast && <div className="toast">{toast}</div>}<BottomNav active="plan" onChange={onNavigate} /></div>;
+  const [toast, setToast] = useState(""); const [exporting, setExporting] = useState(false);
+  const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(""), 1800); };
+  const save = async () => {
+    if (exporting) return; setExporting(true);
+    try { const blob = await renderShareCard(plan); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `PaceMix-${shareDate().replaceAll(".", "-")}.png`; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); notify("图片已保存到本地"); }
+    catch { notify("图片生成失败，请重试"); } finally { setExporting(false); }
+  };
+  const share = async () => {
+    if (exporting) return; setExporting(true);
+    try {
+      const blob = await renderShareCard(plan); const file = new File([blob], `PaceMix-${shareDate().replaceAll(".", "-")}.png`, { type: "image/png" });
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) await navigator.share({ files: [file], title: "PaceMix 训练成绩" });
+      else { const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = file.name; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); notify("当前环境不支持分享，已保存图片"); }
+    } catch (error) { if ((error as DOMException).name !== "AbortError") notify("分享没有完成，请重试"); } finally { setExporting(false); }
+  };
+  const covers = shareCovers(plan); const fastest = Math.max(...plan.stages.map((stage) => stage.speed));
+  return <div className="achievement-page"><button className="close-button" aria-label="返回方案" onClick={onPlan}><Cross2Icon /></button><MobileScroll className="achievement-scroll"><main>
+    <section className="share-poster" aria-label="训练成绩卡预览">
+      <header><span className="share-logo"><i>♪</i><b>PaceMix · QQ音乐</b></span><time>{shareDate()}</time></header>
+      <strong className="share-duration">{plan.minutes}:00</strong><h1>{plan.activity === "跑步" ? "节奏跑" : plan.activity}完成</h1>
+      <div className="share-chart"><SpeedCurve plan={plan} /><div className="share-stage-labels">{plan.stages.map((stage) => <span className={stage.speed === fastest ? "active" : ""} style={{ flex: stage.minutes }} key={`${stage.name}-${stage.minutes}`}>{stage.name} {stage.minutes}′</span>)}</div></div>
+      <div className="share-stats"><div><b>{averageSpm(plan)}<small>SPM</small></b><span>平均步频</span></div><div><b>{fastest}<small>km/h</small></b><span>最高速度</span></div><div><b>{plan.schedule.length}<small>首</small></b><span>节奏歌曲</span></div></div>
+      <div className="share-stage-bar">{plan.stages.map((stage, index) => <i className={index === 1 || plan.stages.length === 1 ? "active" : ""} style={{ flex: stage.minutes }} key={`${stage.name}-bar`} />)}</div>
+      <div className="share-stage-bar-labels">{plan.stages.map((stage) => <span className={stage.speed === fastest ? "active" : ""} style={{ flex: stage.minutes }} key={`${stage.name}-label`}>{stage.name} {stage.minutes}′</span>)}</div>
+      <div className="share-footer"><div className="share-covers">{covers.map((song) => <span key={song.id}><img src={song.cover} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /></span>)}</div><img className="share-calligraphy" src="/ui/pacemix-calligraphy.png" alt="音乐跟上每一步" /></div>
+    </section>
+    <p className="share-note">图片只在点击保存时生成，不会存入应用</p>
+    <div className="achievement-actions"><button disabled={exporting} onClick={() => void save()}><DownloadIcon />{exporting ? "生成中…" : "保存图片"}</button><button disabled={exporting} onClick={() => void share()}><Share1Icon />分享</button></div><button className="again-link" onClick={onAgain}>再来一次</button>
+  </main></MobileScroll>{toast && <div className="toast">{toast}</div>}</div>;
 }
 
 function Splash() { return <div className="splash"><ParticleField variant="orb" /><motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}><b>PaceMix</b><span>让音乐跟上你的节奏</span></motion.div></div>; }
@@ -380,7 +527,7 @@ export default function Prototype() {
   const defaultPlan = (nextSeed: number, cadence = profile) => { const result = buildPlan({ minutes: 30, activity: "跑步机爬坡", language: "mixed", intensity: "ai" }, nextSeed, cadence); if (!result.ok) throw new Error(result.error.message); return result.plan; };
   const [plan, setPlan] = useState<Plan>(() => defaultPlan(1, readCadence()));
   useEffect(() => { const timer = window.setTimeout(() => setBooting(false), 900); return () => window.clearTimeout(timer); }, []);
-  useEffect(() => { try { const saved = localStorage.getItem("pacemix:v1:plan"); if (!saved) return; const parsed = JSON.parse(saved) as Plan; if (parsed.version === 1 && parsed.schedule?.length) setPlan({ ...parsed, cadenceProfile: parsed.cadenceProfile || "standard", stages: parsed.stages.map((stage) => ({ ...stage, baseSpm: stage.baseSpm ?? stage.targetSpm })) }); } catch { /* optional */ } }, []);
+  useEffect(() => { try { const saved = localStorage.getItem("pacemix:v1:plan"); if (!saved) return; const parsed = JSON.parse(saved) as Plan; if (parsed.version === 1 && parsed.schedule?.length) setPlan(refreshCatalogAssets({ ...parsed, cadenceProfile: parsed.cadenceProfile || "standard", stages: parsed.stages.map((stage) => ({ ...stage, baseSpm: stage.baseSpm ?? stage.targetSpm })) })); } catch { /* optional */ } }, []);
   useEffect(() => { try { localStorage.setItem("pacemix:v1:plan", JSON.stringify(plan)); localStorage.setItem("pacemix:v1:cadence", profile); } catch { /* optional */ } }, [plan, profile]);
   const resetViewport = () => {
     window.scrollTo(0, 0);
@@ -394,11 +541,11 @@ export default function Prototype() {
   const navigateTab = (next: Screen) => { if (["arrange", "plan", "mine"].includes(next)) nav(next); };
   if (booting) return <Splash />;
   if (screen === "chat") return <ChatPage plan={plan} profile={profile} onBack={() => nav("arrange")} onDone={(next) => { setPlan(next); nav("plan"); }} onNavigate={navigateTab} />;
-  if (screen === "session") return <SessionPage plan={plan} onExit={() => nav("plan")} onComplete={() => nav("achievement")} />;
+  if (screen === "session") return <SessionPage plan={plan} onExit={() => nav("achievement")} onComplete={() => nav("achievement")} />;
   if (screen === "achievement") return <AchievementPage plan={plan} onPlan={() => nav("plan")} onAgain={() => nav("session")} onNavigate={navigateTab} />;
   return <div className="app-shell"><AnimatePresence mode="wait"><motion.div className="screen-layer" key={screen} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: .25 }}>
     {screen === "arrange" && <ArrangePage plan={plan} onPlan={() => nav("plan")} onChat={() => nav("chat")} onShuffle={() => { const next = seed + 1; setSeed(next); setPlan(defaultPlan(next)); }} />}
     {screen === "plan" && <PlanPage plan={plan} onStart={() => nav("session")} onChat={() => nav("chat")} onCadenceChange={(cadence) => { setProfile(cadence); setPlan(retunePlanCadence(plan, cadence, seed)); }} onNavigate={navigateTab} />}
     {screen === "mine" && <MinePage plan={plan} onPlan={() => nav("plan")} onChat={() => nav("chat")} />}
-  </motion.div></AnimatePresence>{screen !== "plan" && <BottomNav active={screen} onChange={navigateTab} />}</div>;
+  </motion.div></AnimatePresence></div>;
 }

@@ -74,7 +74,7 @@ export const catalog: Song[] = [
   ["kill", "Kill This Love", "BLACKPINK", 132, 189, "BLACKPINK - Kill This Love"],
   ["hero", "孤勇者", "陈奕迅", 130, 256, "陈奕迅 - 孤勇者"],
   ["party", "派对动物", "五月天", 136, 250, "五月天 - 派对动物"],
-  ["stars", "Counting Stars", "OneRepublic", 122, 257, "Counting Stars"],
+  ["stars", "Counting Stars", "OneRepublic", 122, 257, "OneRepublic - Counting Stars"],
   ["rather", "Rather Be", "Clean Bandit, Jess Glynne", 121, 228, "Clean Bandit,Jess Glynne - Rather Be"],
   ["sugar", "Sugar", "Maroon 5", 120, 235, "Maroon 5 - Sugar"],
   ["habit", "Bad Habits", "Ed Sheeran", 126, 231, "Ed Sheeran - Bad Habits"],
