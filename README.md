@@ -58,22 +58,11 @@ npm run dev:all
 
 API key 只由本地 Node 代理读取，不会进入浏览器 bundle。不要创建 `VITE_*_API_KEY`，也不要提交 `.env.local`。
 
-### 添加演示音乐
+### 演示曲库
 
-由于版权原因，仓库不包含歌曲和封面。要体验完整播放效果，请将自己拥有合法授权的音乐文件放入 `public/music/`，并准备同名的封面图片放入 `public/covers/`：
+仓库已内置 16 首演示歌曲（`public/music/`）和配套封面（`public/covers/`），克隆后即可完整体验训练播放、阶段切换和音乐时间轴。曲库清单在 `src/lib/pacemix.ts` 的 `catalog` 中维护；增删歌曲时保持 `public/music/<标题>.mp3` 与 `public/covers/<标题>.jpg` 同名对应，前端会自动识别。
 
-```text
-public/music/  
-  五月天 - 倔强.mp3
-  Taylor Swift - Shake It Off.mp3
-  ...
-public/covers/
-  五月天 - 倔强.jpg
-  Taylor Swift - Shake It Off.jpg
-  ...
-```
-
-之后重新启动前端即可自动识别。没有音乐时，App 的 UI、倒计时和阶段切换仍可正常演示。
+这些歌曲仅用于黑客松演示。公开发布或商业化前，必须替换为已获得授权的曲库/API 资源。
 
 ## 可用于验收的输入
 
@@ -192,8 +181,8 @@ npm run test:sites
 
 - 训练计划和步频校准存储在浏览器 `localStorage`，目前没有用户账户或云端数据库。
 - NLU 代理只向模型发送本次文本和当前结构化草稿。
-- `.env.local`、构建产物、测试结果、演示音乐及封面均已加入 `.gitignore`，不会进入仓库。
-- 自行放入 `public/music/` 和 `public/covers/` 的歌曲和封面仅用于本地演示。公开发布或商业化前，必须替换为已获得授权的曲库/API 资源。
+- `.env.local`、构建产物和测试结果均已加入 `.gitignore`，不会进入仓库。
+- 仓库内置的歌曲和封面仅用于黑客松演示。公开发布或商业化前，必须替换为已获得授权的曲库/API 资源。
 
 ## 构建与部署
 
@@ -202,6 +191,14 @@ npm run build
 ```
 
 前端产物位于 `dist/client/`。构建脚本还会生成 `dist/server/index.js` 和 `dist/.openai/hosting.json`，供当前 Sites/Worker 包装层使用。生产环境中应把 `/api/pace-nlu` 放到受认证、限流并使用密钥管理服务的后端，不要依赖本地代理。
+
+### Cloudflare Pages 自动部署
+
+仓库已连接 Cloudflare Pages 的 Git 集成：推送到 `main` 分支即自动触发构建与发布，`public/music/` 和 `public/covers/` 中的曲库会随构建产物一起上线，无需手动同步。
+
+- 构建命令：`npm run build`
+- 输出目录：`dist/client`
+- Node 版本：`22`（仓库含 `.nvmrc`，Cloudflare 环境变量 `NODE_VERSION=22`）
 
 ## 故障排查
 

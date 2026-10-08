@@ -10,11 +10,3 @@ npm-debug.log*
 .env.local
 .env.*
 !.env.example
-
-# 演示音乐及封面受版权保护，不包含在仓库中。
-# 用户需自行准备合法授权的音乐文件后放入以下目录。
-public/music/*.mp3
-public/music/*.m4a
-public/music/*.wav
-public/covers/*.jpg
-public/covers/*.png
