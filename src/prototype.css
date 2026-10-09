@@ -125,6 +125,7 @@
 .share-covers span{position:relative;width:48px;height:48px;border-radius:5px;overflow:hidden;background:linear-gradient(145deg,#d8f3e7,#75d9aa)}
 .share-covers span:before{content:"♪";position:absolute;inset:0;display:grid;place-items:center;color:rgba(255,255,255,.9);font-size:20px;font-weight:800}
 .share-covers span img{position:relative;z-index:1;width:48px;height:48px;display:block;border-radius:0;object-fit:cover}
+.share-calligraphy{mix-blend-mode:normal}
 
 /* Input mode lives with the input itself, not in the bottom app chrome. */
 .voice-input-cluster{position:relative;width:238px;height:238px;margin-top:10px;flex:none}
